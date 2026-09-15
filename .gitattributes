@@ -1,0 +1,14 @@
+# 这是一个 Linux 项目：源码与脚本必须保持 LF，
+# 否则在 Windows 上 clone 到 WSL 后 *.sh 会因 CRLF 报
+#   "bash: $'\r': command not found"
+* text=auto eol=lf
+
+*.sh      text eol=lf
+Makefile  text eol=lf
+*.cpp     text eol=lf
+*.h       text eol=lf
+*.md      text eol=lf
+
+*.png     binary
+*.jpg     binary
+*.bin     binary

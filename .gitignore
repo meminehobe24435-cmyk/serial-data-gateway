@@ -1,0 +1,14 @@
+# 构建产物
+*.o
+serial-data-gateway
+build/
+
+# 运行产物
+records.bin
+*.bin
+*.log
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
