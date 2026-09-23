@@ -23,20 +23,6 @@ static int passed = 0, failed = 0;
     std::fflush(stdout);                                \
 } while (0)
 
-static bool bytes_eq(const std::vector<uint8_t> &a, const std::vector<uint8_t> &b) {
-    return a == b;
-}
-
-static std::string hex(const std::vector<uint8_t> &v, size_t maxn = 24) {
-    std::string s;
-    char b[4];
-    for (size_t i = 0; i < v.size() && i < maxn; ++i) {
-        std::snprintf(b, sizeof(b), "%02X ", v[i]);
-        s += b;
-    }
-    return s;
-}
-
 /* ------------------------------------------------------------------ T1 */
 static void t1_varlen() {
     std::printf("T1 剩余长度变长编码\n");

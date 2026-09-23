@@ -209,3 +209,73 @@ bash tests/consistency_test.sh  # 数据一致性对账
 ## 8. License
 
 MIT
+
+---
+
+## MQTT 上报（`src/mqtt.{h,cpp}`）
+
+网关原本只有 TCP 查询服务；为了把数据送到**云平台/上位机**，补了一个
+**MQTT 3.1.1 客户端**（零第三方依赖，自己实现报文编解码）。
+
+| 能力 | 说明 |
+|---|---|
+| 报文编解码 | CONNECT / CONNACK / PUBLISH / PUBACK / SUBSCRIBE / SUBACK / PINGREQ / PINGRESP / DISCONNECT |
+| **剩余长度变长编码** | MQTT 最经典的坑：每字节低 7 位是数据、最高位表示"后面还有"。**128 字节以下看不出问题，一大就整条链路不通** |
+| 主题名编码 | 2 字节大端长度前缀 + UTF-8，**不是** C 字符串 |
+| 连接标志 | clean session / will / will qos / will retain / username / password **逐位对齐** |
+| 客户端状态机 | 握手超时、QoS0/1 发布、订阅、收消息、**QoS1 自动回 PUBACK**、保活 PINGREQ、对端断开检测、统计计数 |
+| 传输层抽象 | `MqttTransport`：真机走 socket，单测走 `MemoryTransport`（毫秒跑完握手） |
+
+### 实测
+
+```
+==== 结果：97 passed, 0 failed ====
+```
+
+覆盖：变长编码 8 组边界值（0 / 127 / **128** / 16383 / 16384 / 2097151 / 2097152 / 协议上限）、
+半包与非法输入、CONNECT 标志位逐项、QoS1 回 PUBACK、保活节拍、
+服务端拒绝（返回码 4/5）、无 CONNACK 超时、PacketId 回绕跳过 0、
+**400 字节大载荷分两次读入（模拟 TCP 粘包/半包）**。
+
+### 刻意做成「不依赖 POSIX」
+
+MQTT 模块**不引用** `poll.h` / `sys/socket.h` / `fsync`，所以：
+
+- 它能随网关在 **Linux / ARM** 上跑（传输层换成 socket 实现）
+- 也能在 **Windows 上单独编译与测试**（这就是它能在本机验证的原因）
+
+> 开发中在测试里踩了一个真实崩溃：回调 lambda 捕获了上一个作用域的
+> 局部 vector，该块结束后回调仍持有引用 → 段错误。
+> **回调的生命周期必须比捕获的对象短**，这类问题在实机上同样会出现。
+
+---
+
+## ARM / aarch64 交叉编译
+
+网关的目标平台是 **ARM 板子**（工控机 / 边缘网关 / 无人机机载计算机），
+所以补了工具链文件与构建目标：
+
+```bash
+# 需要先装交叉工具链
+sudo apt install g++-aarch64-linux-gnu
+
+# 方式一：Makefile
+make arm            # 用 aarch64-linux-gnu-g++
+make arm-static     # 额外静态链接 libstdc++/libgcc（部署到精简 rootfs 时省事）
+
+# 方式二：CMake 工具链文件
+cmake -B build-arm -DCMAKE_TOOLCHAIN_FILE=cmake/aarch64-linux-gnu.cmake
+cmake --build build-arm -j
+```
+
+`cmake/aarch64-linux-gnu.cmake` 里把交叉编译最容易踩的三件事一次说清：
+
+1. **编译器前缀**（`aarch64-linux-gnu-`）
+2. **sysroot**（按工具链位置调整）
+3. **禁止搜宿主机路径**（`FIND_ROOT_PATH_MODE_* = ONLY`）
+   —— 不定这个，CMake 会把宿主机的 x86 头文件/库混进来，
+   编出来的二进制在板子上因 **GLIBC 版本不匹配**直接跑不起来
+
+> ⚠️ **本机没有 aarch64 交叉工具链**（Windows + msys2 环境），
+> 所以 `make arm` 这条路径**只是配置写好了、没有实际执行验证过**；
+> MQTT 模块本身是在本机真编译真测试的（97 项全通过）。
